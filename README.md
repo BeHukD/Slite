@@ -1,4 +1,4 @@
-![Logo](resource/logo2.png)
+![Logo](resource/logo.png)
 
 A Rust utility for organizing files in your Downloads folder by categorizing them into appropriate folders.
 
