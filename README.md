@@ -1,4 +1,4 @@
-# File Organizer
+![Logo](resource/logo2.png)
 
 A Rust utility for organizing files in your Downloads folder by categorizing them into appropriate folders.
 
