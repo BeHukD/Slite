@@ -11,13 +11,19 @@ enum Message {
 }
 
 fn main() {
-    let mut tray = TrayItem::new("Example", IconSource::Resource("app_icon")).unwrap();
+    let mut tray = TrayItem::new("Slate", IconSource::Resource("app_icon")).unwrap();
 
     tray.add_menu_item("Sorting", || {
         sorting().expect("TODO: panic message");
     }).expect("TODO: panic message");
 
-    tray.add_menu_item("UnSorting", || {
+    tray.add_menu_item("
+Restore sorting", || {
+        extract_files_back().expect("TODO: panic message");
+    }).expect("TODO: panic message");
+
+    tray.add_menu_item("
+Enable automatic sorting", || {
         extract_files_back().expect("TODO: panic message");
     }).expect("TODO: panic message");
 
@@ -136,6 +142,10 @@ fn sorting() -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+fn update() {
+
 }
 
 fn extract_files_back() -> std::io::Result<()> {
