@@ -1,49 +1,49 @@
+#![windows_subsystem = "windows"]
+
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use dirs::{download_dir, home_dir};
+use std::sync::mpsc;
+use dirs::{home_dir};
+use tray_item::{IconSource, TrayItem};
+
+enum Message {
+    Quit,
+}
 
 fn main() {
-    let mut paths: Vec<String> = Vec::new();
-    paths.push("files".to_string());
-    welcome_operation(&paths);
-}
+    let mut tray = TrayItem::new("Example", IconSource::Resource("app_icon")).unwrap();
 
-fn welcome_operation(paths: &Vec<String>) {
-    println!("Welcome, pls select operation");
-    println!("Operations: Sorting (1), Return all files (2), Extract files back to Downloads (3)");
-    let mut operation = String::new();
-    io::stdin().read_line(&mut operation).unwrap();
+    tray.add_menu_item("Sorting", || {
+        sorting().expect("TODO: panic message");
+    }).expect("TODO: panic message");
 
-    println!("Operation: {}", operation);
+    tray.add_menu_item("UnSorting", || {
+        extract_files_back().expect("TODO: panic message");
+    }).expect("TODO: panic message");
 
-    match operation.as_str().trim() {
-        "1" => {
-            sorting_all_files(&paths)
-        }
-        "2" => {
-            for i in return_all_files(get_downloads_path().to_str().unwrap()) {
-                println!("{}", return_file_name(&i));
+    tray.inner_mut().add_separator().unwrap();
+
+    let (tx, rx) = mpsc::sync_channel(1);
+
+    let quit_tx = tx.clone();
+    tray.add_menu_item("Quit", move || {
+        quit_tx.send(Message::Quit).unwrap();
+    })
+        .unwrap();
+
+    loop {
+        match rx.recv() {
+            Ok(Message::Quit) => {
+                println!("Quit");
+                break;
             }
-        }
-        "3" => {
-            extract_files_back();
-        }
-        _ => {
-            println!("Operation not correctable");
-            return;
+            _ => {}
         }
     }
-}
 
-fn return_file_name(path: &Path) -> &str {
-    path.file_name().unwrap().to_str().unwrap()
-}
-
-fn sorting_all_files(paths: &Vec<String>) {
-    let mut dir = get_downloads_path();
-    check_directory_for_sorting(&mut dir, &paths);
-    sorting().unwrap_or_else(|e| eprintln!("Ошибка сортировки: {}", e));
+    //let mut paths: Vec<String> = Vec::new();
+    //paths.push("files".to_string());
+    //welcome_operation(&paths);
 }
 
 fn sorting() -> std::io::Result<()> {
@@ -83,8 +83,12 @@ fn sorting() -> std::io::Result<()> {
                 }
 
                 let new_path = no_ext_dir.join(file_name);
-                fs::rename(&file, &new_path)?;
-                println!("Перемещен файл без расширения: {} -> {}", file.display(), new_path.display());
+                // Обрабатываем ошибку перемещения
+                if let Err(e) = fs::rename(&file, &new_path) {
+                    eprintln!("Не удалось переместить файл без расширения {}: {}", file.display(), e);
+                } else {
+                    println!("Перемещен файл без расширения: {} -> {}", file.display(), new_path.display());
+                }
                 continue;
             }
         };
@@ -102,7 +106,10 @@ fn sorting() -> std::io::Result<()> {
         let name = get_folder_name(ext_str);
         let ext_dir = target_directory.join(name);
         if !ext_dir.exists() {
-            fs::create_dir(&ext_dir)?;
+            if let Err(e) = fs::create_dir(&ext_dir) {
+                eprintln!("Не удалось создать папку {}: {}", ext_dir.display(), e);
+                continue;
+            }
             println!("Создана папка для расширения: {}", ext_dir.display());
         }
 
@@ -115,8 +122,17 @@ fn sorting() -> std::io::Result<()> {
             continue;
         }
 
-        fs::rename(&file, &new_path)?;
-        println!("Успешно перемещен: {} -> {}", file.display(), new_path.display());
+        // Пытаемся переместить файл, обрабатываем ошибки
+        match fs::rename(&file, &new_path) {
+            Ok(_) => {
+                println!("Успешно перемещен: {} -> {}", file.display(), new_path.display());
+            }
+            Err(e) => {
+                eprintln!("Не удалось переместить файл {}: {}", file.display(), e);
+                // Продолжаем обработку следующих файлов
+                continue;
+            }
+        }
     }
 
     Ok(())
@@ -153,11 +169,15 @@ fn extract_files_recursive(source_dir: &Path, target_dir: &Path) -> std::io::Res
 
         if path.is_dir() {
             // Рекурсивно обрабатываем подпапки
-            extract_files_recursive(&path, target_dir)?;
+            if let Err(e) = extract_files_recursive(&path, target_dir) {
+                eprintln!("Ошибка при обработке папки {}: {}", path.display(), e);
+            }
 
             // Удаляем пустую папку после извлечения файлов
             if is_dir_empty(&path)? {
-                fs::remove_dir(&path)?;
+                if let Err(e) = fs::remove_dir(&path) {
+                    eprintln!("Не удалось удалить папку {}: {}", path.display(), e);
+                }
             }
         } else if path.is_file() {
             // Перемещаем файл в целевую директорию
@@ -170,8 +190,17 @@ fn extract_files_recursive(source_dir: &Path, target_dir: &Path) -> std::io::Res
                 continue;
             }
 
-            fs::rename(&path, &new_path)?;
-            println!("Извлечен: {} -> {}", path.display(), new_path.display());
+            // Пытаемся переместить файл, обрабатываем ошибки
+            match fs::rename(&path, &new_path) {
+                Ok(_) => {
+                    println!("Извлечен: {} -> {}", path.display(), new_path.display());
+                }
+                Err(e) => {
+                    eprintln!("Не удалось извлечь файл {}: {}", path.display(), e);
+                    // Продолжаем обработку следующих файлов
+                    continue;
+                }
+            }
         }
     }
 
@@ -267,25 +296,11 @@ fn get_folder_name(format: &str) -> String {
     }
 }
 
-fn check_directory_for_sorting(dir: &mut PathBuf, paths: &Vec<String>) {
-    for i in paths {
-        let mut reserv_dir = dir.clone();
-        reserv_dir.push(i);
-        if !reserv_dir.exists() {
-            fs::create_dir(&reserv_dir).unwrap();
-        }
-    }
-}
-
 fn get_downloads_path() -> PathBuf {
     let mut path = home_dir().unwrap_or_else(|| PathBuf::from("."));
 
     if cfg!(windows) {
         path.push("Downloads");
-    } else if cfg!(macos) {
-        path.push("Downloads");
-    } else {
-        path.push("Загрузки"); // Для Linux
     }
 
     path
