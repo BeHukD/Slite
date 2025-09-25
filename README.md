@@ -22,6 +22,6 @@ My first Rust project! A simple tool that automatically organizes files in your 
 1. **Install Rust** from [rust-lang.org](https://rust-lang.org)
 2. **Clone & build:**
    ```bash
-   git clone https://github.com/yourusername/slate.git
+   git clone https://github.com/BeHukD/Slite.git
    cd slate
    cargo build --release
