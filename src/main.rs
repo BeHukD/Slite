@@ -1,8 +1,8 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 
-use std::fs;
+use std::{fs, thread};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use dirs::{home_dir};
 use fs_extra::dir::{move_dir, CopyOptions};
@@ -14,21 +14,47 @@ enum Message {
     Toggel,
 }
 
-#[derive(Default)]
-struct Settings {
-    toggel: bool,
-    exit: bool,
-}
+ #[derive(Default)]
+ struct Settings {
+     toggel: bool,
+     exit: bool,
+ }
 
 fn main() {
     setup_auto_launch();
 
     let (tx, rx) = mpsc::channel::<Message>();
 
-    let mut settings: Settings = Default::default();
+    let mut settings = Arc::new(Mutex::new(Settings {
+        toggel: true,
+        exit: false,
+    }));
 
-    settings.toggel = true;
-    settings.exit = false;
+    let settings_update = Arc::clone(&settings);
+
+    thread::spawn(move || {
+        loop {
+            {
+                let sett = settings_update.lock().unwrap();
+                if sett.exit {
+                    break;
+                }
+            }
+
+            let should_sort = {
+                let sett = settings_update.lock().unwrap();
+                sett.toggel
+            };
+
+            if should_sort {
+                if let Err(e) = sorting() {
+                    eprintln!("Ошибка при сортировке: {}", e);
+                }
+            }
+
+            thread::sleep(Duration::from_secs(10));
+        }
+    });
 
     let create_tray = |enable: bool, tx: mpsc::Sender<Message>| -> TrayItem{
 
@@ -68,22 +94,38 @@ Restore sorting", || {
         tray
     };
 
-    let mut tray = create_tray(settings.toggel, tx.clone());
+    let current_toggle = {
+        let sett = settings.lock().unwrap();
+        sett.toggel
+    };
 
-    update(&mut settings);
+    let mut tray = create_tray(current_toggle, tx.clone());
 
     loop {
         match rx.recv() {
             Ok(Message::Quit) => {
-                settings.exit = true;
+                {
+                    let mut sett = settings.lock().unwrap();
+                    sett.exit = true;
+                }
+                println!("exit");
                 break;
             }
             Ok(Message::Toggel) => {
-                settings.toggel = !settings.toggel;
+                let new_toggle = {
+                    let mut sett = settings.lock().unwrap();
+                    sett.toggel = !sett.toggel;
+                    sett.toggel
+                };
+
                 drop(tray);
-                tray = create_tray(settings.toggel, tx.clone());
+                tray = create_tray(new_toggle, tx.clone());
+                println!("toggle: {}", new_toggle);
             }
-            _ => {}
+            Err(e) => {
+                eprintln!("Ошибка получения сообщения: {}", e);
+                break;
+            }
         }
     }
 
@@ -92,7 +134,6 @@ Restore sorting", || {
 fn setup_auto_launch() {
     let app_name = "Slate";
 
-    // Получаем путь к текущему исполняемому файлу
     let app_path = std::env::current_exe()
         .expect("Failed to get current executable path")
         .to_string_lossy()
@@ -100,7 +141,6 @@ fn setup_auto_launch() {
 
     let auto = AutoLaunch::new(app_name, &app_path, &[] as &[&str]);
 
-    // Включаем автозапуск (можно добавить проверку, если нужно)
     if let Err(e) = auto.enable() {
         eprintln!("Failed to enable auto-launch: {}", e);
     }
