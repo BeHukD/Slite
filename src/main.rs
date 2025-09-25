@@ -17,6 +17,7 @@ enum Message {
 #[derive(Default)]
 struct Settings {
     toggel: bool,
+    exit: bool,
 }
 
 fn main() {
@@ -27,6 +28,7 @@ fn main() {
     let mut settings: Settings = Default::default();
 
     settings.toggel = true;
+    settings.exit = false;
 
     let create_tray = |enable: bool, tx: mpsc::Sender<Message>| -> TrayItem{
 
@@ -68,11 +70,12 @@ Restore sorting", || {
 
     let mut tray = create_tray(settings.toggel, tx.clone());
 
-    update(settings.toggel);
+    update(&mut settings);
 
     loop {
         match rx.recv() {
             Ok(Message::Quit) => {
+                settings.exit = true;
                 break;
             }
             Ok(Message::Toggel) => {
@@ -205,9 +208,12 @@ fn sorting() -> std::io::Result<()> {
     Ok(())
 }
 
-fn update(auto_sorting: bool) {
+fn update(settings: &mut Settings) {
     loop {
-        if auto_sorting {
+        if settings.exit {
+            break;
+        }
+        if settings.toggel {
             sorting().unwrap();
         }
         std::thread::sleep(Duration::from_secs(10));
