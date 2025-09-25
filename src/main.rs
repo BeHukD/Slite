@@ -1,55 +1,85 @@
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Duration;
 use dirs::{home_dir};
 use tray_item::{IconSource, TrayItem};
 
 enum Message {
     Quit,
+    Toggel,
+}
+
+#[derive(Default)]
+struct Settings {
+    toggel: bool,
 }
 
 fn main() {
-    let mut tray = TrayItem::new("Slate", IconSource::Resource("app_icon")).unwrap();
+    let (tx, rx) = mpsc::channel::<Message>();
 
-    tray.add_menu_item("Sorting", || {
-        sorting().expect("TODO: panic message");
-    }).expect("TODO: panic message");
+    let mut settings: Settings = Default::default();
 
-    tray.add_menu_item("
+    settings.toggel = true;
+
+    let create_tray = |enable: bool, tx: mpsc::Sender<Message>| -> TrayItem{
+
+        let mut tray = TrayItem::new("Slate", IconSource::Resource("app_icon")).unwrap();
+
+        tray.add_menu_item("Sorting", || {
+            sorting().expect("TODO: panic message");
+        }).expect("TODO: panic message");
+
+        tray.add_menu_item("
 Restore sorting", || {
-        extract_files_back().expect("TODO: panic message");
-    }).expect("TODO: panic message");
+            extract_files_back().expect("TODO: panic message");
+        }).expect("TODO: panic message");
 
-    tray.add_menu_item("
-Enable automatic sorting", || {
-        extract_files_back().expect("TODO: panic message");
-    }).expect("TODO: panic message");
+        if enable {
+            let tx_toggle = tx.clone();
+            tray.add_menu_item("Disable", move || {
+                tx_toggle.send(Message::Toggel).unwrap();
+            })
+                .unwrap();
+        } else {
+            let tx_toggle = tx.clone();
+            tray.add_menu_item("Enable", move || {
+                tx_toggle.send(Message::Toggel).unwrap();
+            })
+                .unwrap();
+        }
 
-    tray.inner_mut().add_separator().unwrap();
+        tray.inner_mut().add_separator().unwrap();
 
-    let (tx, rx) = mpsc::sync_channel(1);
+        let tx_exit = tx.clone();
+        tray.add_menu_item("Quit", move || {
+            tx_exit.send(Message::Quit).unwrap();
+        })
+            .unwrap();
 
-    let quit_tx = tx.clone();
-    tray.add_menu_item("Quit", move || {
-        quit_tx.send(Message::Quit).unwrap();
-    })
-        .unwrap();
+        tray
+    };
+
+    let mut tray = create_tray(settings.toggel, tx.clone());
+
+    update(settings.toggel);
 
     loop {
         match rx.recv() {
             Ok(Message::Quit) => {
-                println!("Quit");
                 break;
+            }
+            Ok(Message::Toggel) => {
+                settings.toggel = !settings.toggel;
+                drop(tray);
+                tray = create_tray(settings.toggel, tx.clone());
             }
             _ => {}
         }
     }
 
-    //let mut paths: Vec<String> = Vec::new();
-    //paths.push("files".to_string());
-    //welcome_operation(&paths);
 }
 
 fn sorting() -> std::io::Result<()> {
@@ -57,19 +87,16 @@ fn sorting() -> std::io::Result<()> {
     let mut target_directory = get_downloads_path();
     target_directory.push("files");
 
-    // Создаем основную папку "files" если её нет
     if !target_directory.exists() {
         fs::create_dir(&target_directory)?;
         println!("Создана основная папка: {}", target_directory.display());
     }
 
     for file in files {
-        // Пропускаем саму папку "files"
         if file.file_name().unwrap() == "files" {
             continue;
         }
 
-        // Получаем только имя файла (без пути)
         let file_name = match file.file_name() {
             Some(name) => name,
             None => {
@@ -78,18 +105,15 @@ fn sorting() -> std::io::Result<()> {
             }
         };
 
-        // Получаем расширение файла
         let extension = match file.extension() {
             Some(ext) => ext,
             None => {
-                // Файлы без расширения перемещаем в special папку
                 let no_ext_dir = target_directory.join("no_extension");
                 if !no_ext_dir.exists() {
                     fs::create_dir(&no_ext_dir)?;
                 }
 
                 let new_path = no_ext_dir.join(file_name);
-                // Обрабатываем ошибку перемещения
                 if let Err(e) = fs::rename(&file, &new_path) {
                     eprintln!("Не удалось переместить файл без расширения {}: {}", file.display(), e);
                 } else {
@@ -99,7 +123,6 @@ fn sorting() -> std::io::Result<()> {
             }
         };
 
-        // Получаем расширение как строку
         let ext_str = match extension.to_str() {
             Some(ext) => ext,
             None => {
@@ -108,7 +131,6 @@ fn sorting() -> std::io::Result<()> {
             }
         };
 
-        // Создаем папку для расширения
         let name = get_folder_name(ext_str);
         let ext_dir = target_directory.join(name);
         if !ext_dir.exists() {
@@ -119,23 +141,19 @@ fn sorting() -> std::io::Result<()> {
             println!("Создана папка для расширения: {}", ext_dir.display());
         }
 
-        // Перемещаем файл в соответствующую папку
         let new_path = ext_dir.join(file_name);
 
-        // Проверяем, не существует ли уже файл с таким именем
         if new_path.exists() {
             println!("Файл уже существует: {}, пропускаем", new_path.display());
             continue;
         }
 
-        // Пытаемся переместить файл, обрабатываем ошибки
         match fs::rename(&file, &new_path) {
             Ok(_) => {
                 println!("Успешно перемещен: {} -> {}", file.display(), new_path.display());
             }
             Err(e) => {
                 eprintln!("Не удалось переместить файл {}: {}", file.display(), e);
-                // Продолжаем обработку следующих файлов
                 continue;
             }
         }
@@ -144,8 +162,13 @@ fn sorting() -> std::io::Result<()> {
     Ok(())
 }
 
-fn update() {
-
+fn update(auto_sorting: bool) {
+    loop {
+        if auto_sorting {
+            sorting().unwrap();
+        }
+        std::thread::sleep(Duration::from_secs(10));
+    }
 }
 
 fn extract_files_back() -> std::io::Result<()> {
@@ -159,10 +182,8 @@ fn extract_files_back() -> std::io::Result<()> {
 
     let downloads_path = get_downloads_path();
 
-    // Рекурсивно обходим все файлы в папке files
     extract_files_recursive(&files_dir, &downloads_path)?;
 
-    // Удаляем пустую папку files
     if is_dir_empty(&files_dir)? {
         fs::remove_dir(&files_dir)?;
         println!("Папка 'files' удалена");
@@ -178,29 +199,24 @@ fn extract_files_recursive(source_dir: &Path, target_dir: &Path) -> std::io::Res
         let path = entry.path();
 
         if path.is_dir() {
-            // Рекурсивно обрабатываем подпапки
             if let Err(e) = extract_files_recursive(&path, target_dir) {
                 eprintln!("Ошибка при обработке папки {}: {}", path.display(), e);
             }
 
-            // Удаляем пустую папку после извлечения файлов
             if is_dir_empty(&path)? {
                 if let Err(e) = fs::remove_dir(&path) {
                     eprintln!("Не удалось удалить папку {}: {}", path.display(), e);
                 }
             }
         } else if path.is_file() {
-            // Перемещаем файл в целевую директорию
             let file_name = path.file_name().unwrap();
             let new_path = target_dir.join(file_name);
 
-            // Проверяем на конфликт имен
             if new_path.exists() {
                 println!("Файл уже существует: {}, пропускаем", new_path.display());
                 continue;
             }
 
-            // Пытаемся переместить файл, обрабатываем ошибки
             match fs::rename(&path, &new_path) {
                 Ok(_) => {
                     println!("Извлечен: {} -> {}", path.display(), new_path.display());
@@ -301,7 +317,6 @@ fn get_folder_name(format: &str) -> String {
         // 3D models
         "obj" | "stl" | "fbx" | "blend" => "3d_models".to_string(),
 
-        // Default - use extension as folder name
         _ => format.to_lowercase()
     }
 }
@@ -319,17 +334,15 @@ fn get_downloads_path() -> PathBuf {
 fn return_all_files(path: &str) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
-    // Обрабатываем Result от read_dir
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(e) => {
             eprintln!("Ошибка чтения директории {}: {}", path, e);
-            return files; // Возвращаем пустой вектор
+            return files;
         }
     };
 
     for entry in entries {
-        // Обрабатываем Result от каждого entry
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
