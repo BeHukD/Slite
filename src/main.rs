@@ -7,6 +7,7 @@ use std::time::Duration;
 use dirs::{home_dir};
 use fs_extra::dir::{move_dir, CopyOptions};
 use tray_item::{IconSource, TrayItem};
+use auto_launch::AutoLaunch;
 
 enum Message {
     Quit,
@@ -19,6 +20,8 @@ struct Settings {
 }
 
 fn main() {
+    setup_auto_launch();
+
     let (tx, rx) = mpsc::channel::<Message>();
 
     let mut settings: Settings = Default::default();
@@ -81,6 +84,23 @@ Restore sorting", || {
         }
     }
 
+}
+
+fn setup_auto_launch() {
+    let app_name = "Slate";
+
+    // Получаем путь к текущему исполняемому файлу
+    let app_path = std::env::current_exe()
+        .expect("Failed to get current executable path")
+        .to_string_lossy()
+        .to_string();
+
+    let auto = AutoLaunch::new(app_name, &app_path, &[] as &[&str]);
+
+    // Включаем автозапуск (можно добавить проверку, если нужно)
+    if let Err(e) = auto.enable() {
+        eprintln!("Failed to enable auto-launch: {}", e);
+    }
 }
 
 fn sorting() -> std::io::Result<()> {
