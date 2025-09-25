@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 use dirs::{home_dir};
+use fs_extra::dir::{move_dir, CopyOptions};
 use tray_item::{IconSource, TrayItem};
 
 enum Message {
@@ -84,16 +85,38 @@ Restore sorting", || {
 
 fn sorting() -> std::io::Result<()> {
     let files = return_all_files(get_downloads_path().to_str().unwrap());
+
+    let mut folder_directory = get_downloads_path();
+    folder_directory.push("folders");
+
+    if !folder_directory.exists() {
+        fs::create_dir(&folder_directory)?;
+    }
+
     let mut target_directory = get_downloads_path();
     target_directory.push("files");
 
     if !target_directory.exists() {
         fs::create_dir(&target_directory)?;
-        println!("Создана основная папка: {}", target_directory.display());
     }
 
+
     for file in files {
+
         if file.file_name().unwrap() == "files" {
+            continue;
+        }
+
+        if file.file_name().unwrap() == "folders" {
+            continue;
+        }
+
+        if !file.is_file() {
+            let options = CopyOptions::new();
+            match move_dir(file, &folder_directory, &options) {
+                Ok(_) => continue,
+                Err(e) => println!("{:?}", e),
+            }
             continue;
         }
 
@@ -352,9 +375,7 @@ fn return_all_files(path: &str) -> Vec<PathBuf> {
         };
 
         let path = entry.path();
-        if path.is_file() {
-            files.push(path);
-        }
+        files.push(path);
     }
 
     files
