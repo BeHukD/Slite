@@ -1,4 +1,4 @@
-//#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use std::{fs, thread};
 use std::path::{Path, PathBuf};
@@ -165,6 +165,15 @@ fn sorting() -> std::io::Result<()> {
 
 
     for file in files {
+
+        if file.file_name().unwrap().to_string_lossy().to_string() == "Slate" {
+            continue;
+        }
+
+        let extension = file.extension().unwrap().to_string_lossy().to_string();
+        if extension == "crdownload" {
+            continue;
+        }
 
         if file.file_name().unwrap() == "files" {
             continue;
